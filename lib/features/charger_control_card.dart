@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../application/session/charger_session_actor.dart';
+import '../design/app_components.dart';
+import '../design/app_tokens.dart';
 import '../domain/charger_models/lock_target.dart';
 
 /// Home-page charger control ported from the mini program `pages/index`:
@@ -21,6 +23,12 @@ import '../domain/charger_models/lock_target.dart';
 ///
 /// Every send additionally requires an explicit confirmation dialog, and one
 /// confirmation issues exactly one control frame.
+///
+/// The layout mirrors that split on purpose. The lock direction is an ordinary
+/// setting and lives in one inset group, while force activation is a one-shot
+/// wake-up of a sleeping charger and gets its own alert-coloured block. Every
+/// safety sentence is rendered as an [AppNotice], so "read this before
+/// writing" never blends into "these are the buttons".
 class ChargerControlCard extends StatefulWidget {
   const ChargerControlCard({super.key, required this.session});
 
@@ -161,32 +169,58 @@ class _ChargerControlCardState extends State<ChargerControlCard> {
     required String confirmLabel,
   }) => showDialog<bool>(
     context: context,
-    builder: (context) => AlertDialog(
-      title: Text(title),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              '目标设备：${widget.session.connectedDeviceName} · ${widget.session.deviceSuffix}',
+    builder: (context) {
+      final theme = Theme.of(context);
+      final scheme = theme.colorScheme;
+      return AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Icon(
+                    Icons.link,
+                    size: 14,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Expanded(
+                    child: Text(
+                      '目标设备：${widget.session.connectedDeviceName} · ${widget.session.deviceSuffix}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(body),
+            ],
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            // A confirmed write reaches real hardware, so the affirmative
+            // action is tinted with the error palette instead of the calm
+            // primary colour.
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.error,
+              foregroundColor: scheme.onError,
             ),
-            const SizedBox(height: 12),
-            Text(body),
-          ],
-        ),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: Text(confirmLabel),
-        ),
-      ],
-    ),
+            child: Text(confirmLabel),
+          ),
+        ],
+      );
+    },
   );
 
   @override
@@ -195,136 +229,309 @@ class _ChargerControlCardState extends State<ChargerControlCard> {
     final reported = session.currentLockTarget;
     final enabled = session.canOperateControl && !_busy;
     final selected = _selected;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                const Icon(Icons.power_settings_new),
-                const SizedBox(width: 8),
-                Text(
-                  '充电器控制',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '对应小程序首页的两项控制写入。写入前会二次确认，'
-              '一次确认只发送一帧，且不会被周期查询穿插。',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const Divider(height: 24),
-            Text(
-              reported == null
-                  ? '锁定状态：尚未取得 02 读回值'
-                  : '锁定状态：${reported.label}',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 12),
-            SegmentedButton<LockTarget>(
-              segments: <ButtonSegment<LockTarget>>[
-                for (final target in LockTarget.values)
-                  ButtonSegment<LockTarget>(
-                    value: target,
-                    label: Text(target == LockTarget.lock ? '锁定' : '开启'),
-                  ),
-              ],
-              selected: <LockTarget>{?selected},
-              emptySelectionAllowed: true,
-              onSelectionChanged: enabled
-                  ? (selection) {
-                      setState(() => _selected = selection.firstOrNull);
-                    }
-                  : null,
-            ),
-            const SizedBox(height: 8),
-            FilledButton.icon(
-              onPressed: enabled && selected != null
-                  ? () => _applyLock(selected)
-                  : null,
-              icon: const Icon(Icons.lock_outline),
-              label: Text(
-                selected == null ? '请选择目标状态' : '发送 ${selected.label}',
-              ),
-            ),
-            if (selected != null && reported == selected)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text('设备读回已是该状态，发送按钮会拒绝重复写入。'),
-              ),
-            const Divider(height: 24),
-            GestureDetector(
-              onLongPressStart: enabled ? (_) => _startHold() : null,
-              onLongPressEnd: enabled ? (_) => _cancelHold() : null,
-              onLongPressCancel: enabled ? _cancelHold : null,
-              child: FilledButton.icon(
-                onPressed: null,
-                icon: Icon(
-                  _holdActive ? Icons.hourglass_top : Icons.bolt_outlined,
-                ),
-                label: Text(
-                  !session.canOperateControl
-                      ? '强制激活（需先取得有效 02）'
-                      : _busy
-                      ? '控制写入核验中…'
-                      : _holdActive
-                      ? '继续按住…'
-                      : '长按 3 秒强制激活',
-                ),
-              ),
-            ),
-            const Padding(
-              padding: EdgeInsets.only(top: 8),
-              child: Text(
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const AppSectionHeader(
+            title: '充电器控制',
+            icon: Icons.power_settings_new,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          AppNotice(
+            text:
+                '对应小程序首页的两项控制写入。写入前会二次确认，'
+                '一次确认只发送一帧，且不会被周期查询穿插。',
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          _LockDirectionGroup(
+            reported: reported,
+            selected: selected,
+            enabled: enabled,
+            onDirectionChanged: (target) => setState(() => _selected = target),
+            onSend: _applyLock,
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          const Divider(height: AppSpacing.xl),
+          const SizedBox(height: AppSpacing.lg),
+          AppNotice(
+            tone: AppNoticeTone.caution,
+            text:
                 '电池处于休眠状态时，需长按 3 秒充电器强制输出。'
                 '设备可能以 HCI 0x13 主动断开，App 不会因此自动重发本次控制帧。',
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _ForceActivationButton(
+            holdActive: _holdActive,
+            busy: _busy,
+            canOperate: session.canOperateControl,
+            onLongPressStart: enabled ? (_) => _startHold() : null,
+            onLongPressEnd: enabled ? (_) => _cancelHold() : null,
+            onLongPressCancel: enabled ? _cancelHold : null,
+          ),
+          if (session.lastControlResult != null) ...<Widget>[
+            const SizedBox(height: AppSpacing.lg),
+            _ControlResultCard(result: session.lastControlResult!),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Lock-direction group: device readback, direction picker and send button.
+///
+/// The three pieces are drawn inside one inset panel so they read as a single
+/// "read the device, pick a direction, send it" control instead of three
+/// unrelated widgets, and so the group stays visually apart from the
+/// force-activation action below it.
+class _LockDirectionGroup extends StatelessWidget {
+  const _LockDirectionGroup({
+    required this.reported,
+    required this.selected,
+    required this.enabled,
+    required this.onDirectionChanged,
+    required this.onSend,
+  });
+
+  /// Direction reported by the latest accepted 02 reply.
+  final LockTarget? reported;
+
+  /// Direction the user is aiming at; `null` means "nothing picked yet".
+  final LockTarget? selected;
+
+  /// Whether a control write may be issued at all right now.
+  final bool enabled;
+
+  final ValueChanged<LockTarget?> onDirectionChanged;
+  final ValueChanged<LockTarget> onSend;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final current = reported;
+    final target = selected;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: scheme.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Container(
+                width: AppSpacing.sm,
+                height: AppSpacing.sm,
+                decoration: BoxDecoration(
+                  color: current == null ? scheme.outline : scheme.accent,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  current == null
+                      ? '锁定状态：尚未取得 02 读回值'
+                      : '锁定状态：${current.label}',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: current == null
+                        ? scheme.onSurfaceVariant
+                        : scheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          SegmentedButton<LockTarget>(
+            segments: <ButtonSegment<LockTarget>>[
+              for (final direction in LockTarget.values)
+                ButtonSegment<LockTarget>(
+                  value: direction,
+                  label: Text(direction == LockTarget.lock ? '锁定' : '开启'),
+                ),
+            ],
+            selected: <LockTarget>{?target},
+            emptySelectionAllowed: true,
+            expandedInsets: EdgeInsets.zero,
+            onSelectionChanged: enabled
+                ? (selection) => onDirectionChanged(selection.firstOrNull)
+                : null,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: enabled && target != null ? () => onSend(target) : null,
+              icon: const Icon(Icons.lock_outline),
+              label: Text(
+                target == null ? '请选择目标状态' : '发送 ${target.label}',
               ),
             ),
-            if (session.lastControlResult != null) ...<Widget>[
-              const SizedBox(height: 12),
-              _ControlResultCard(result: session.lastControlResult!),
-            ],
+          ),
+          if (target != null && current == target) ...<Widget>[
+            const SizedBox(height: AppSpacing.md),
+            const AppNotice(text: '设备读回已是该状态，发送按钮会拒绝重复写入。'),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Force-activation control: the one-shot wake-up of a sleeping charger.
+///
+/// The Material button itself stays permanently disabled — the enclosing
+/// [GestureDetector] owns the 3 second hold — so the button is tinted with
+/// the error palette to read as a distinct, higher-consequence action rather
+/// than as a second primary button. The tint also carries the "held" state,
+/// because a disabled button has no other way to show it.
+class _ForceActivationButton extends StatelessWidget {
+  const _ForceActivationButton({
+    required this.holdActive,
+    required this.busy,
+    required this.canOperate,
+    required this.onLongPressStart,
+    required this.onLongPressEnd,
+    required this.onLongPressCancel,
+  });
+
+  /// Whether the 3 second hold is currently running.
+  final bool holdActive;
+
+  /// Whether a control write is still being verified.
+  final bool busy;
+
+  /// Whether the session has a valid 02 reply to write against.
+  final bool canOperate;
+
+  final GestureLongPressStartCallback? onLongPressStart;
+  final GestureLongPressEndCallback? onLongPressEnd;
+  final VoidCallback? onLongPressCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final label = !canOperate
+        ? '强制激活（需先取得有效 02）'
+        : busy
+        ? '控制写入核验中…'
+        : holdActive
+        ? '继续按住…'
+        : '长按 3 秒强制激活';
+    return SizedBox(
+      width: double.infinity,
+      child: GestureDetector(
+        onLongPressStart: onLongPressStart,
+        onLongPressEnd: onLongPressEnd,
+        onLongPressCancel: onLongPressCancel,
+        child: FilledButton.icon(
+          onPressed: null,
+          style: ButtonStyle(
+            // Shape, padding and type come from the app's filledButtonTheme,
+            // so only the two colours are restated here.
+            backgroundColor: WidgetStateProperty.resolveWith<Color?>(
+              (_) => holdActive ? scheme.error : scheme.errorContainer,
+            ),
+            foregroundColor: WidgetStateProperty.resolveWith<Color?>(
+              (_) => holdActive ? scheme.onError : scheme.onErrorContainer,
+            ),
+          ),
+          icon: Icon(holdActive ? Icons.hourglass_top : Icons.bolt_outlined),
+          label: Text(label),
         ),
       ),
     );
   }
 }
 
+/// Result of the last control write.
+///
+/// The outcome drives the whole card's colour, because the three outcomes
+/// mean very different things: verified, delivered but unverifiable, and not
+/// confirmed at all.
 class _ControlResultCard extends StatelessWidget {
   const _ControlResultCard({required this.result});
   final ControlWriteResult result;
 
   @override
   Widget build(BuildContext context) {
-    final (icon, headline) = switch (result.outcome) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final parameters = result.parameters;
+    final (icon, headline, background, foreground) = switch (result.outcome) {
       ControlWriteOutcome.acknowledged => (
         Icons.verified,
         '${result.label}·已验证',
+        scheme.primaryContainer,
+        scheme.onPrimaryContainer,
       ),
       ControlWriteOutcome.acknowledgedUnverified => (
         Icons.help_outline,
         '${result.label}·已回包未核验',
+        scheme.warningContainer,
+        scheme.warning,
       ),
       ControlWriteOutcome.unacknowledged => (
         Icons.error_outline,
         '${result.label}·未确认',
+        scheme.errorContainer,
+        scheme.onErrorContainer,
       ),
     };
-    final parameters = result.parameters;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon),
-      title: Text(headline),
-      subtitle: Text(
-        '${result.message ?? ''}'
-        '${parameters == null ? '' : '\n新 02 读回锁定标志：0x${parameters.lockRaw.toRadixString(16).padLeft(2, '0').toUpperCase()}'}',
+    final message = result.message ?? '';
+    return AppCard(
+      color: background,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(icon, size: 18, color: foreground),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  headline,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: foreground,
+                  ),
+                ),
+                if (message.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    message,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: foreground,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+                if (parameters != null) ...<Widget>[
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    '新 02 读回锁定标志：0x${parameters.lockRaw.toRadixString(16).padLeft(2, '0').toUpperCase()}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: foreground,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
-      isThreeLine: parameters != null,
     );
   }
 }

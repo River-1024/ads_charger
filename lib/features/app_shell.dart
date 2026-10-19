@@ -5,11 +5,17 @@ import 'package:flutter/services.dart';
 
 import '../application/presets/preset_service.dart';
 import '../application/session/charger_session_actor.dart';
+import '../design/app_components.dart';
+import '../design/app_tokens.dart';
 import '../domain/charger_models/charger_parameters.dart';
+import '../domain/charger_models/charger_status.dart';
 import '../domain/validation/charger_parameter_validator.dart';
 import '../infrastructure/diagnostics/diagnostic_log.dart';
 import '../infrastructure/permissions/ble_permission_gate.dart';
 import 'charger_control_card.dart';
+
+/// 页面内容的最大宽度：平板与横屏下卡片拉通整屏会让读数行难以横向比较。
+const double _maxContentWidth = 640;
 
 class AppShell extends StatefulWidget {
   const AppShell({
@@ -198,7 +204,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             title: Text(titles[safeIndex]),
             actions: <Widget>[
               Padding(
-                padding: const EdgeInsets.only(right: 16),
+                padding: const EdgeInsets.only(right: AppSpacing.lg),
                 child: Center(
                   child: _ConnectionChip(
                     session: widget.session,
@@ -245,16 +251,22 @@ class _ConnectionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    // Each phase keeps its own wording: "read-only" vs "safe to write".
     final (label, color) = switch (session.phase) {
-      ChargerSessionPhase.writeCompatibilityVerified => ('可安全修改', Colors.green),
-      ChargerSessionPhase.readProtocolVerified => ('只读已验证', Colors.blue),
-      ChargerSessionPhase.scanning => ('扫描中', Colors.orange),
+      ChargerSessionPhase.writeCompatibilityVerified => (
+        '可安全修改',
+        scheme.accent,
+      ),
+      ChargerSessionPhase.readProtocolVerified => ('只读已验证', scheme.secondary),
+      ChargerSessionPhase.scanning => ('扫描中', scheme.warning),
       ChargerSessionPhase.connecting ||
       ChargerSessionPhase.discoveringServices ||
       ChargerSessionPhase.subscribing ||
-      ChargerSessionPhase.reconnecting => ('连接中', Colors.orange),
-      ChargerSessionPhase.failed => ('失败', Colors.red),
-      _ => ('未连接', Colors.grey),
+      ChargerSessionPhase.reconnecting => ('连接中', scheme.warning),
+      ChargerSessionPhase.failed => ('失败', scheme.error),
+      _ => ('未连接', scheme.outline),
     };
     final canReconnect =
         onReconnect != null &&
@@ -265,21 +277,40 @@ class _ConnectionChip extends StatelessWidget {
           ChargerSessionPhase.failed => true,
           _ => false,
         };
+    // The chip shape, border and background come from the theme.
     if (canReconnect) {
       return ActionChip(
         visualDensity: VisualDensity.compact,
-        avatar: Icon(Icons.refresh, size: 18, color: color),
+        avatar: Icon(Icons.refresh, size: 18, color: scheme.accent),
         label: const Text('重连'),
         onPressed: onReconnect,
       );
     }
+    final labelStyle = theme.textTheme.labelMedium?.copyWith(color: color);
     return Chip(
       visualDensity: VisualDensity.compact,
       avatar: Icon(Icons.circle, size: 10, color: color),
-      label: Text(label),
+      label: Text(label, style: labelStyle),
     );
   }
 }
+
+/// 页面内容容器：内容收进居中的定宽区域；卡片间距由调用方显式控制，因为主题把 `Card.margin` 归零了。
+Widget _pageBody({required List<Widget> children, ScrollPhysics? physics}) =>
+    Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _maxContentWidth),
+        child: ListView(
+          physics: physics,
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.md,
+          ),
+          children: children,
+        ),
+      ),
+    );
 
 class _DevicesPage extends StatelessWidget {
   const _DevicesPage({
@@ -307,10 +338,10 @@ class _DevicesPage extends StatelessWidget {
     final defaultSeen =
         defaultDevice != null &&
         session.devices.any((device) => device.id == defaultDevice!.deviceKey);
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    final errorColor = Theme.of(context).colorScheme.error;
+    return _pageBody(
       children: <Widget>[
-        _InfoCard(
+        AppInfoCard(
           title: '本机默认设备',
           icon: Icons.push_pin_outlined,
           child: defaultDevice == null
@@ -325,40 +356,45 @@ class _DevicesPage extends StatelessWidget {
                   ],
                 ),
         ),
+        const SizedBox(height: AppSpacing.md),
         FilledButton.icon(
           onPressed: session.isScanning ? null : onScan,
           icon: const Icon(Icons.radar),
           label: Text(session.isScanning ? '正在扫描附近设备…' : '搜索蓝牙设备'),
         ),
-        if (permissionMessage != null)
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.lock_outline),
-              title: Text(permissionMessage!),
-              trailing: permissionNeedsSettings
-                  ? TextButton(
-                      onPressed: onOpenSettings,
-                      child: const Text('打开设置'),
-                    )
-                  : null,
-            ),
+        if (permissionMessage != null) ...<Widget>[
+          const SizedBox(height: AppSpacing.md),
+          AppNotice(
+            text: permissionMessage!,
+            icon: Icons.lock_outline,
+            tone: permissionNeedsSettings
+                ? AppNoticeTone.caution
+                : AppNoticeTone.info,
           ),
-        if (session.errorMessage != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Text(
-              session.errorMessage!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+          if (permissionNeedsSettings) ...<Widget>[
+            const SizedBox(height: AppSpacing.sm),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: onOpenSettings,
+                child: const Text('打开设置'),
+              ),
             ),
-          ),
-        const SizedBox(height: 8),
+          ],
+        ],
+        if (session.errorMessage != null) ...<Widget>[
+          const SizedBox(height: AppSpacing.md),
+          Text(session.errorMessage!, style: TextStyle(color: errorColor)),
+        ],
         if (!session.isScanning && session.devices.isEmpty)
-          const _EmptyState(
+          const AppEmptyState(
             icon: Icons.bluetooth_disabled,
             text: '暂无本轮扫描结果。搜索不按设备名称过滤，也不会显示历史缓存设备。',
           ),
         ...session.devices.map(
-          (device) => Card(
+          (device) => AppCard(
+            margin: const EdgeInsets.only(top: AppSpacing.md),
+            padding: EdgeInsets.zero,
             child: ListTile(
               leading: const CircleAvatar(child: Icon(Icons.ev_station)),
               title: Text(device.name.isEmpty ? '未命名蓝牙设备' : device.name),
@@ -397,11 +433,13 @@ class _DevicesPage extends StatelessWidget {
           ),
         ),
         if (session.isConnected) ...<Widget>[
-          const Divider(height: 32),
+          const SizedBox(height: AppSpacing.md),
+          const Divider(height: AppSpacing.xxl),
           Text('已连接 ${session.connectedDeviceName} · ${session.deviceSuffix}'),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           Wrap(
-            spacing: 8,
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
             children: <Widget>[
               OutlinedButton.icon(
                 onPressed: session.isReadVerified
@@ -442,18 +480,18 @@ class _StatusPage extends StatelessWidget {
     final value = session.status;
     return RefreshIndicator(
       onRefresh: session.refreshStatus,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
+      child: _pageBody(
+        // The dashboard can be shorter than the viewport, so keep it scrollable.
         physics: const AlwaysScrollableScrollPhysics(),
         children: <Widget>[
           if (!session.isReadVerified) ...<Widget>[
-            const _EmptyState(
+            const AppEmptyState(
               icon: Icons.query_stats,
               text: '连接设备并通过 02 参数验证后，才开始查询实时状态。',
             ),
             if (session.errorMessage != null)
               Padding(
-                padding: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.only(bottom: AppSpacing.md),
                 child: Text(
                   session.errorMessage!,
                   textAlign: TextAlign.center,
@@ -473,41 +511,65 @@ class _StatusPage extends StatelessWidget {
                 icon: const Icon(Icons.refresh),
                 label: const Text('重连默认设备'),
               ),
-          ] else ...<Widget>[
+          ] else if (value == null) ...<Widget>[
             ChargerControlCard(session: session),
-            const SizedBox(height: 16),
-            if (value == null)
-              FilledButton.icon(
-                onPressed: session.refreshStatus,
-                icon: const Icon(Icons.refresh),
-                label: const Text('查询实时状态'),
-              )
-            else ...<Widget>[
-              _MetricGrid(
-                items: <(String, String)>[
-                  ('输出电压', _voltage(value.voltageHundredths)),
-                  ('输出电流', _current(value.currentTenths)),
-                  ('电量原始值', '${value.percentRaw}'),
-                  ('时间原始值', '${value.timeRaw}'),
-                  ('功率原始值', '${value.powerRaw}'),
-                  ('容量原始值', '${value.capacityRaw}'),
-                  ('温度原始值', '${value.temperatureRaw}'),
-                  ('充电状态码', '${value.batteryStateRaw}'),
-                  (
-                    '故障码',
-                    '0x${value.faultRaw.toRadixString(16).padLeft(2, '0')}',
-                  ),
-                ],
-              ),
-              const Padding(
-                padding: EdgeInsets.only(top: 12),
-                child: Text('除电压、电流外，其余字段单位尚需真实充电器核对，因此显示原始值。'),
-              ),
-            ],
-          ],
+            const SizedBox(height: AppSpacing.md),
+            FilledButton.icon(
+              onPressed: session.refreshStatus,
+              icon: const Icon(Icons.refresh),
+              label: const Text('查询实时状态'),
+            ),
+          ] else
+            ..._buildDashboard(value),
         ],
       ),
     );
+  }
+
+  /// 仪表盘分支：两个关键读数占据最大权重，原始值降级为次级网格与折叠区。
+  List<Widget> _buildDashboard(ChargerStatus value) {
+    final (voltage, voltageUnit) = _voltageParts(value.voltageHundredths);
+    final (current, currentUnit) = _currentParts(value.currentTenths);
+    return <Widget>[
+      AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const AppSectionHeader(title: '实时读数', icon: Icons.speed),
+            const SizedBox(height: AppSpacing.md),
+            // Stacked: a 360dp screen with enlarged text cannot fit two heroes in a row.
+            AppHeroMetric(label: '输出电压', value: voltage, unit: voltageUnit),
+            const SizedBox(height: AppSpacing.md),
+            AppHeroMetric(label: '输出电流', value: current, unit: currentUnit),
+          ],
+        ),
+      ),
+      const SizedBox(height: AppSpacing.md),
+      ChargerControlCard(session: session),
+      const SizedBox(height: AppSpacing.md),
+      AppMetricGrid(
+        items: <(String, String)>[
+          ('电量原始值', '${value.percentRaw}'),
+          ('温度原始值', '${value.temperatureRaw}'),
+          ('充电状态码', '${value.batteryStateRaw}'),
+          ('故障码', '0x${value.faultRaw.toRadixString(16).padLeft(2, '0')}'),
+        ],
+      ),
+      const SizedBox(height: AppSpacing.md),
+      AppDisclosure(
+        title: '更多原始读数',
+        initiallyExpanded: false,
+        child: AppMetricGrid(
+          items: <(String, String)>[
+            ('功率原始值', '${value.powerRaw}'),
+            ('时间原始值', '${value.timeRaw}'),
+            ('容量原始值', '${value.capacityRaw}'),
+          ],
+        ),
+      ),
+      const SizedBox(height: AppSpacing.md),
+      const AppNotice(text: '除电压、电流外，其余字段单位尚需真实充电器核对，因此显示原始值。'),
+    ];
   }
 }
 
@@ -518,13 +580,12 @@ class _ParametersPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = session.parameters;
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return _pageBody(
       children: <Widget>[
         if (value == null)
-          const _EmptyState(icon: Icons.tune, text: '连接后自动查询 02 参数。')
+          const AppEmptyState(icon: Icons.tune, text: '连接后自动查询 02 参数。')
         else ...<Widget>[
-          _MetricGrid(
+          AppMetricGrid(
             items: <(String, String)>[
               ('设定电压', _voltage(value.voltageHundredths)),
               ('设定电流', _current(value.currentTenths)),
@@ -539,15 +600,15 @@ class _ParametersPage extends StatelessWidget {
               ('设备版本', '${value.versionRaw}'),
             ],
           ),
-          if (value.modeRaw != 1)
-            const Card(
-              child: ListTile(
-                leading: Icon(Icons.warning_amber),
-                title: Text('设备当前不是锂电模式'),
-                subtitle: Text('App 写入时会固定使用锂电模式，但不会在未确认前自动修改。'),
-              ),
+          if (value.modeRaw != 1) ...<Widget>[
+            const SizedBox(height: AppSpacing.md),
+            const AppNotice(
+              title: '设备当前不是锂电模式',
+              text: 'App 写入时会固定使用锂电模式，但不会在未确认前自动修改。',
+              tone: AppNoticeTone.caution,
             ),
-          const SizedBox(height: 12),
+          ],
+          const SizedBox(height: AppSpacing.md),
           FilledButton.icon(
             onPressed: session.isWriteVerified
                 ? () => _showParameterEditor(context, session, value)
@@ -555,12 +616,15 @@ class _ParametersPage extends StatelessWidget {
             icon: const Icon(Icons.edit),
             label: const Text('修改电压和电流'),
           ),
-          const Padding(
-            padding: EdgeInsets.only(top: 8),
-            child: Text('取得有效 02 参数后即可修改；每次确认只发送一次 03，并用两次新的 02 读回核验结果。'),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            '取得有效 02 参数后即可修改；每次确认只发送一次 03，并用两次新的 02 读回核验结果。',
+            style: AppText.caption(context),
           ),
-          if (session.lastWriteResult != null)
+          if (session.lastWriteResult != null) ...<Widget>[
+            const SizedBox(height: AppSpacing.md),
             _WriteResultCard(result: session.lastWriteResult!),
+          ],
         ],
       ],
     );
@@ -581,27 +645,26 @@ class _PresetsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return _pageBody(
       children: <Widget>[
         FilledButton.icon(
           onPressed: () => _editPreset(context),
           icon: const Icon(Icons.add),
           label: const Text('新建自定义预设'),
         ),
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Text('仅保存名称、电压和电流；应用仍需读取最新设备参数并再次确认。'),
-        ),
+        const SizedBox(height: AppSpacing.md),
+        const AppNotice(text: '仅保存名称、电压和电流；应用仍需读取最新设备参数并再次确认。'),
         if (presets.isEmpty)
-          const _EmptyState(
+          const AppEmptyState(
             icon: Icons.bookmarks_outlined,
             text: '没有内置模板，也没有自定义预设。',
           ),
         ...presets.asMap().entries.map((entry) {
           final index = entry.key;
           final preset = entry.value;
-          return Card(
+          return AppCard(
+            margin: const EdgeInsets.only(top: AppSpacing.md),
+            padding: EdgeInsets.zero,
             child: ListTile(
               title: Text(preset.name),
               subtitle: Text(
@@ -676,7 +739,7 @@ class _PresetsPage extends StatelessWidget {
               controller: name,
               decoration: const InputDecoration(labelText: '名称'),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             TextField(
               controller: voltage,
               keyboardType: const TextInputType.numberWithOptions(
@@ -684,7 +747,7 @@ class _PresetsPage extends StatelessWidget {
               ),
               decoration: const InputDecoration(labelText: '电压 (V)'),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             TextField(
               controller: current,
               keyboardType: const TextInputType.numberWithOptions(
@@ -747,6 +810,7 @@ class _SettingsPage extends StatelessWidget {
     required this.service,
     required this.onChanged,
   });
+
   final ChargerSessionActor session;
   final DefaultDeviceRecord? defaultDevice;
   final PresetService service;
@@ -754,36 +818,42 @@ class _SettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return _pageBody(
       children: <Widget>[
-        if (defaultDevice != null)
-          ListTile(
-            title: const Text('解除本机默认设备'),
-            subtitle: Text(
-              '${defaultDevice!.name} · ${_suffix(defaultDevice!.deviceKey)}',
-            ),
-            trailing: TextButton(
-              onPressed: () async {
-                await service.clearDefaultDevice();
-                await onChanged();
-              },
-              child: const Text('解除'),
-            ),
+        AppCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: <Widget>[
+              if (defaultDevice != null)
+                ListTile(
+                  title: const Text('解除本机默认设备'),
+                  subtitle: Text(
+                    '${defaultDevice!.name} · ${_suffix(defaultDevice!.deviceKey)}',
+                  ),
+                  trailing: TextButton(
+                    onPressed: () async {
+                      await service.clearDefaultDevice();
+                      await onChanged();
+                    },
+                    child: const Text('解除'),
+                  ),
+                ),
+              ListTile(
+                leading: const Icon(Icons.receipt_long_outlined),
+                title: const Text('运行日志'),
+                subtitle: Text(
+                  '${session.diagnostics.entries.length} 条；支持复制、下载和清空，内容已脱敏',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _showDiagnosticLog(context, session.diagnostics),
+              ),
+              const AboutListTile(
+                applicationName: 'ADS 充电器',
+                applicationVersion: '1.0.0',
+                applicationLegalese: 'Android / iOS BLE 直连控制端',
+              ),
+            ],
           ),
-        ListTile(
-          leading: const Icon(Icons.receipt_long_outlined),
-          title: const Text('运行日志'),
-          subtitle: Text(
-            '${session.diagnostics.entries.length} 条；支持复制、下载和清空，内容已脱敏',
-          ),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => _showDiagnosticLog(context, session.diagnostics),
-        ),
-        const AboutListTile(
-          applicationName: 'ADS 充电器',
-          applicationVersion: '1.0.0',
-          applicationLegalese: 'Android / iOS BLE 直连控制端',
         ),
       ],
     );
@@ -874,12 +944,12 @@ Future<void> _showDiagnosticLog(BuildContext context, DiagnosticLog log) async {
               ],
             ),
             body: entries.isEmpty
-                ? const _EmptyState(
+                ? const AppEmptyState(
                     icon: Icons.receipt_long_outlined,
                     text: '暂无运行日志。扫描、连接、查询和参数写入过程会记录在这里。',
                   )
                 : ListView.separated(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(AppSpacing.md),
                     itemCount: entries.length,
                     separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
@@ -953,13 +1023,13 @@ Future<void> _showParameterEditor(
             '当前：${_voltage(latest.voltageHundredths)} / ${_current(latest.currentTenths)}',
           ),
           const Text('写入模式：锂电模式（固定）'),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           TextField(
             controller: voltage,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(labelText: '目标电压 (V)'),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           TextField(
             controller: amperage,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -1021,122 +1091,42 @@ Future<void> _showParameterEditor(
 class _WriteResultCard extends StatelessWidget {
   const _WriteResultCard({required this.result});
   final ParameterWriteResult result;
-  @override
-  Widget build(BuildContext context) => Card(
-    child: ListTile(
-      leading: Icon(
-        result.outcome == ParameterWriteOutcome.verified
-            ? Icons.verified
-            : Icons.help_outline,
-      ),
-      title: Text(
-        result.outcome == ParameterWriteOutcome.verified ? '修改成功' : '未确认生效',
-      ),
-      subtitle: Text(
-        '${result.message ?? ''}\n目标 ${_voltage(result.targetVoltageHundredths)} / ${_current(result.targetCurrentTenths)}${result.actual == null ? '\n未取得设备读回值' : '\n实际 ${_voltage(result.actual!.voltageHundredths)} / ${_current(result.actual!.currentTenths)} / mode=${result.actual!.modeRaw}'}',
-      ),
-      isThreeLine: true,
-    ),
-  );
-}
 
-class _MetricGrid extends StatelessWidget {
-  const _MetricGrid({required this.items});
-  final List<(String, String)> items;
   @override
   Widget build(BuildContext context) {
-    final textScale = MediaQuery.textScalerOf(context).scale(1);
-    final itemHeight = (104 + (textScale - 1) * 44).clamp(104, 148).toDouble();
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisExtent: itemHeight,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-      ),
-      itemCount: items.length,
-      itemBuilder: (_, index) => Card(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              Text(
-                items[index].$1,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-              const SizedBox(height: 4),
-              Flexible(
-                child: Text(
-                  items[index].$2,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ),
-            ],
-          ),
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    // Both share the body text, so the verdict lives in the headline colour.
+    final verified = result.outcome == ParameterWriteOutcome.verified;
+    final accent = verified ? scheme.accent : scheme.error;
+    final icon = verified ? Icons.verified : Icons.help_outline;
+    final titleStyle = theme.textTheme.titleSmall?.copyWith(color: accent);
+    return AppCard(
+      padding: EdgeInsets.zero,
+      child: ListTile(
+        leading: Icon(icon, color: accent),
+        title: Text(verified ? '修改成功' : '未确认生效', style: titleStyle),
+        subtitle: Text(
+          '${result.message ?? ''}\n目标 ${_voltage(result.targetVoltageHundredths)} / ${_current(result.targetCurrentTenths)}${result.actual == null ? '\n未取得设备读回值' : '\n实际 ${_voltage(result.actual!.voltageHundredths)} / ${_current(result.actual!.currentTenths)} / mode=${result.actual!.modeRaw}'}',
+          style: AppText.caption(context),
         ),
+        isThreeLine: true,
       ),
     );
   }
 }
 
-class _InfoCard extends StatelessWidget {
-  const _InfoCard({
-    required this.title,
-    required this.icon,
-    required this.child,
-  });
-  final String title;
-  final IconData icon;
-  final Widget child;
-  @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Icon(icon),
-              const SizedBox(width: 8),
-              Text(title, style: Theme.of(context).textTheme.titleMedium),
-            ],
-          ),
-          const SizedBox(height: 8),
-          child,
-        ],
-      ),
-    ),
-  );
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.icon, required this.text});
-  final IconData icon;
-  final String text;
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 36),
-    child: Column(
-      children: <Widget>[
-        Icon(icon, size: 52, color: Theme.of(context).colorScheme.outline),
-        const SizedBox(height: 12),
-        Text(text, textAlign: TextAlign.center),
-      ],
-    ),
-  );
-}
-
 String _voltage(int hundredths) => '${(hundredths / 100).toStringAsFixed(2)} V';
 String _current(int tenths) => '${(tenths / 10).toStringAsFixed(1)} A';
+
+/// Splits a voltage into number and unit for independent typesetting.
+(String, String) _voltageParts(int hundredths) =>
+    ((hundredths / 100).toStringAsFixed(2), 'V');
+
+/// See [_voltageParts].
+(String, String) _currentParts(int tenths) =>
+    ((tenths / 10).toStringAsFixed(1), 'A');
+
 String _suffix(String id) {
   final compact = id.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
   return (compact.length <= 6 ? compact : compact.substring(compact.length - 6))

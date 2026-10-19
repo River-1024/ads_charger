@@ -3,6 +3,7 @@ import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
 import 'application/presets/preset_service.dart';
 import 'application/session/charger_session_actor.dart';
+import 'design/app_theme.dart';
 import 'features/app_shell.dart';
 import 'infrastructure/ble/flutter_reactive_ble_driver.dart';
 import 'infrastructure/storage/parameter_write_journal.dart';
@@ -36,19 +37,9 @@ class AdsChargerApp extends StatelessWidget {
     return MaterialApp(
       title: 'ADS 充电器',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xff006b5f),
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-        cardTheme: const CardThemeData(
-          margin: EdgeInsets.symmetric(vertical: 6),
-        ),
-        inputDecorationTheme: const InputDecorationTheme(
-          border: OutlineInputBorder(),
-        ),
-      ),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: ThemeMode.system,
       home: AppShell(session: session, presets: presets),
     );
   }

@@ -72,7 +72,7 @@ void main() {
       addTearDown(() {
         if (directory.existsSync()) directory.deleteSync(recursive: true);
       });
-      final driver = _IdleDriver();
+      final driver = _IdleDriver(emitDisconnect: true);
       final actor = await tester.runAsync(() async {
         final value = ChargerSessionActor(
           driver: driver,
@@ -114,6 +114,8 @@ void main() {
       expect(find.text('设备'), findsNothing);
       expect(find.text('状态'), findsWidgets);
       expect(driver.lastConnectedDeviceId, 'AA:BB:CC:DD:EE:01');
+      // The link dropped, so the session settled out of `connecting` and the
+      // manual reconnect action is available again.
       expect(find.text('重连默认设备'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
@@ -332,6 +334,17 @@ class _MemoryStore implements KeyValueStore {
 }
 
 class _IdleDriver implements BleDriver {
+  _IdleDriver({this.emitDisconnect = false});
+
+  /// Drops the link right after the connect call.
+  ///
+  /// A driver that never reports any connection event leaves the session in
+  /// [ChargerSessionPhase.connecting] until the connection timeout fires.
+  /// That timeout is a real timer, and the widget test fake clock does not
+  /// drive it, so the session would never settle. Reporting the drop moves
+  /// the session to [ChargerSessionPhase.failed] deterministically.
+  final bool emitDisconnect;
+
   String? lastConnectedDeviceId;
 
   @override
@@ -348,7 +361,16 @@ class _IdleDriver implements BleDriver {
     Duration? timeout,
   }) {
     lastConnectedDeviceId = deviceId;
-    return const Stream<BleConnectionEvent>.empty();
+    if (!emitDisconnect) {
+      return const Stream<BleConnectionEvent>.empty();
+    }
+    return Stream<BleConnectionEvent>.value(
+      BleConnectionEvent(
+        deviceId: deviceId,
+        state: BleConnectionState.disconnected,
+        error: 'test link drop',
+      ),
+    );
   }
 
   @override

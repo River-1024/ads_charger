@@ -17,26 +17,27 @@ Android/iOS 直连 ADS 充电器的 Flutter 客户端。当前提供当前轮 BL
 
 ## 本地检查
 
+在仓库根目录执行：
+
 ```powershell
-cd D:\daima\bms\esp32c3-ble-diagnostics\app
-$env:PUB_CACHE='D:\daima\bms\esp32c3-ble-diagnostics\.pubcache'
-D:\sdk\flutter\bin\flutter.bat test --reporter compact
-D:\sdk\flutter\bin\cache\dart-sdk\bin\dart.exe analyze lib test
+$env:PUB_CACHE="$PWD\.pubcache"
+flutter test --reporter compact
+dart analyze lib test
 ```
 
 ## Android Debug 构建
 
-本机约定使用 JDK 26 和用户 Android SDK：
+本机约定使用 JDK 21 和用户 Android SDK：
 
 ```powershell
-cd D:\daima\bms\esp32c3-ble-diagnostics\app\android
-$env:JAVA_HOME='C:\Program Files\Java\jdk-26.0.1'
+cd android
+$env:JAVA_HOME='<JDK 21 安装路径>'
 $env:Path="$env:JAVA_HOME\bin;$env:LOCALAPPDATA\Android\Sdk\cmdline-tools\latest\bin;$env:LOCALAPPDATA\Android\Sdk\platform-tools;$env:Path"
 .\gradlew.bat assembleDebug
 ```
 
-Oracle JDK 26.0.1 会在 Android API 36 的 `JdkImageTransform/jlink` 阶段失败。当前可用构建回退为
-Microsoft OpenJDK 21.0.12.101；应用的 Java/Kotlin 字节码目标仍为 17。
+Oracle JDK 26.0.1 会在 Android API 36 的 `JdkImageTransform/jlink` 阶段失败，因此本机实际使用
+Microsoft OpenJDK 21.0.12.101 构建；应用的 Java/Kotlin 字节码目标仍为 17。
 
 2026-09-15 已用 JDK 21 成功执行 `gradlew.bat clean assembleDebug`，APK 输出到：
 

@@ -1,0 +1,33 @@
+Copyright (c) 2026 River-1024. All rights reserved.
+
+本仓库及其全部内容（包括源代码、固件通信协议描述、文档与资源文件）为专有软件，
+仅用于本项目所有者的内部开发、测试与评估。
+
+未经版权持有人事先书面许可，任何个人或组织不得实施下列行为：
+
+1. 复制、分发、公开传播或以任何方式向第三方提供本软件的全部或任何部分；
+2. 修改、翻译、反向工程、反编译或反汇编本软件；
+3. 将本软件或其衍生作品用于任何商业目的；
+4. 移除或遮盖本软件中的版权声明或其他权利标识。
+
+本软件按"原样"提供，不附带任何明示或暗示的担保，包括但不限于对适销性、特定用途
+适用性和非侵权性的担保。在任何情况下，版权持有人均不对因使用本软件而产生的任何
+直接、间接、偶然、特殊或后果性损害承担责任。
+
+---
+
+Copyright (c) 2026 River-1024. All rights reserved.
+
+This repository and all of its contents, including source code, device protocol
+descriptions, documentation and asset files, are proprietary software intended solely
+for the owner's internal development, testing and evaluation.
+
+No part of this software may be copied, distributed, published, sublicensed, modified,
+translated, reverse engineered, decompiled, disassembled, or used for any commercial
+purpose without prior written permission from the copyright holder.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

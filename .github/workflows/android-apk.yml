@@ -1,0 +1,77 @@
+name: Android APK
+
+# 在 GitHub 托管的 ubuntu runner 上打包 Android APK，无需本地 JDK/Android SDK。
+# release 变体由 android/app/build.gradle.kts 指向 debug 签名配置，产物可直接安装到设备。
+# 需要正式签名时，另行配置 keystore 并替换 signingConfig。
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: '构建类型：release（debug 密钥签名，可直装）或 debug'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'android/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/android-apk.yml'
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.4'
+          channel: stable
+          cache: true
+
+      - name: Accept Android licenses
+        run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: Build APK
+        env:
+          BUILD_TYPE: ${{ inputs.build_type || 'release' }}
+        run: |
+          set -euo pipefail
+          flutter build apk --"$BUILD_TYPE"
+          APK="build/app/outputs/flutter-apk/app-${BUILD_TYPE}.apk"
+          test -f "$APK" || { echo "::error::未找到 APK: $APK"; ls -R build/app/outputs/flutter-apk || true; exit 1; }
+          cp "$APK" "ads_charger-${BUILD_TYPE}.apk"
+          ls -lh "ads_charger-${BUILD_TYPE}.apk"
+          sha256sum "ads_charger-${BUILD_TYPE}.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-${{ inputs.build_type || 'release' }}
+          path: ads_charger-*.apk
+          retention-days: 14

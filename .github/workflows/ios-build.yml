@@ -1,0 +1,78 @@
+name: iOS Build
+
+# 目的：在没有本地 Mac 的前提下，用 GitHub 托管的 macOS runner 编译 iOS 产物。
+# 本 workflow 产出「未签名」IPA，仅用于验证 iOS 侧可编译通过、以及交给持有
+# 企业证书/开发者证书的一方重签。要直接装到真机，请改用带签名的方式
+# （Codemagic / GitHub Actions + App Store Connect API Key），见 README。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'ios/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/ios-build.yml'
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-ios:
+    name: Build iOS (unsigned)
+    runs-on: macos-15
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.4'
+          channel: stable
+          cache: true
+
+      - name: Show toolchain
+        run: |
+          flutter --version
+          xcodebuild -version
+          pod --version
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: flutter analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: flutter test
+        # 测试波动不应阻塞产物产出；需要门禁时把这一行删掉。
+        continue-on-error: true
+        run: flutter test
+
+      - name: flutter build ios (release, unsigned)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP_DIR=build/ios/iphoneos
+          test -d "$APP_DIR/Runner.app"
+          rm -rf "$APP_DIR/Payload"
+          mkdir -p "$APP_DIR/Payload"
+          cp -R "$APP_DIR/Runner.app" "$APP_DIR/Payload/"
+          cd "$APP_DIR"
+          # -y 保留符号链接，iOS 包内 Framework 依赖符号链接结构
+          zip -qry "$GITHUB_WORKSPACE/ads_charger-unsigned.ipa" Payload
+          ls -lh "$GITHUB_WORKSPACE/ads_charger-unsigned.ipa"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: ads_charger-unsigned.ipa
+          retention-days: 7

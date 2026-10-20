@@ -42,3 +42,30 @@ Microsoft OpenJDK 21.0.12.101 构建；应用的 Java/Kotlin 字节码目标仍�
 2026-09-15 已用 JDK 21 成功执行 `gradlew.bat clean assembleDebug`，APK 输出到：
 
 `build/app/outputs/flutter-apk/app-debug.apk`
+
+## 云端构建
+
+仓库内置三条 GitHub Actions 流水线，不需要本地 Mac 或 Android SDK：
+
+| 工作流 | 触发方式 | 产物 | 说明 |
+| --- | --- | --- | --- |
+| `android-apk.yml` | push / 手动 | `android-apk-release` | ubuntu runner + JDK 21，release 变体沿用 debug 签名配置，产物可直接安装 |
+| `ios-build.yml` | push / 手动 | `ios-unsigned-ipa` | macos-15 runner，`--no-codesign`，仅用于验证可编译，产物无法直装 |
+| `ios-release.yml` | 仅手动 | `ios-signed-ipa` | 需先配置 `IOS_P12_BASE64`、`IOS_P12_PASSWORD`、`IOS_PROVISION_BASE64` 三个 secret |
+
+### iOS 依赖管理注意
+
+本工程使用 **Swift Package Manager** 管理插件依赖（`Runner.xcodeproj` 内含
+`XCLocalSwiftPackageReference "Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage"`）。
+**不要添加 `ios/Podfile`** —— 同时启用 CocoaPods 通道会与纯 SPM 工程冲突，构建报
+`The sandbox is not in sync with the Podfile.lock`。
+
+`permission_handler_apple` 的权限由 `Info.plist` 中的 usage description key 自动启用
+（解析优先级：环境变量 > Info.plist > 默认关闭），不需要 `PERMISSION_*` 预处理宏。
+当前 `Info.plist` 已包含 `NSBluetoothAlwaysUsageDescription` 与
+`NSBluetoothPeripheralUsageDescription`。
+
+### 验证状态
+
+2026-10-20：Android release APK（23.8 MB）与 iOS 签名 IPA（8.1 MB）均已安装到真机并正常启动。
+BLE 扫描、连接与参数读写尚未在真机上做连接测试。
